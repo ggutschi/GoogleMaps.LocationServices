@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Net;
 using System.Security.Authentication;
 using System.Text;
 using System.Xml;
@@ -36,10 +38,11 @@ namespace GoogleMaps.LocationServices
             APIKey = "";
         }
 
-        public GoogleLocationService(string apikey)
+        public GoogleLocationService(string apikey, string proxyUrl = "")
         {
             APIKey = apikey;
             UseHttps = true;
+            ProxyUrl = proxyUrl;
         }
         #endregion
 
@@ -55,6 +58,7 @@ namespace GoogleMaps.LocationServices
 
 
         private string APIKey { get; set; }
+        private string ProxyUrl { get; set; }
 
         private string UrlProtocolPrefix
         {
@@ -92,6 +96,22 @@ namespace GoogleMaps.LocationServices
 
 
         #region Public instance methods
+        private XDocument GetXDocument(string url)
+        {
+            var wp = new WebProxy(ProxyUrl);
+            var wc = new WebClient();
+
+            if (!string.IsNullOrEmpty(ProxyUrl))
+            {
+                wc.Proxy = wp;
+            }
+
+            var ms = new MemoryStream(wc.DownloadData(url));
+            var rdr = new XmlTextReader(ms);
+
+            return XDocument.Load(rdr);
+        }
+
         /// <summary>
         /// Translates a Latitude / Longitude into a Region (state) using Google Maps api
         /// </summary>
@@ -100,7 +120,7 @@ namespace GoogleMaps.LocationServices
         /// <returns></returns>
         public Region GetRegionFromLatLong(double latitude, double longitude)
         {
-            XDocument doc = XDocument.Load(string.Format(CultureInfo.InvariantCulture, APIUrlRegionFromLatLong, latitude, longitude) + "&key=" + APIKey);
+            XDocument doc = GetXDocument(string.Format(CultureInfo.InvariantCulture, APIUrlRegionFromLatLong, latitude, longitude) + "&key=" + APIKey);
 
             var els = doc.Descendants("result").First().Descendants("address_component").FirstOrDefault(s => s.Descendants("type").First().Value == "administrative_area_level_1");
             if (null != els)
@@ -131,9 +151,8 @@ namespace GoogleMaps.LocationServices
             var addressStreetNumber = string.Empty;
             var addressPostalCode = string.Empty;
 
-            XmlDocument doc = new XmlDocument();
+            XmlDocument doc = ToXmlDocument(GetXDocument(string.Format(CultureInfo.InvariantCulture, APIUrlRegionFromLatLong, latitude, longitude) + "&key=" + APIKey));
 
-            doc.Load(string.Format(CultureInfo.InvariantCulture, APIUrlRegionFromLatLong, latitude, longitude) + "&key="+APIKey);
             var element = doc.SelectSingleNode("//GeocodeResponse/status");
             if (element == null || element.InnerText == Constants.ApiResponses.ZeroResults)
             {
@@ -209,7 +228,7 @@ namespace GoogleMaps.LocationServices
         /// <exception cref="System.Net.WebException"></exception>
         public MapPoint GetLatLongFromAddress(string address)
         {
-            XDocument doc = XDocument.Load(string.Format(CultureInfo.InvariantCulture, APIUrlLatLongFromAddress, Uri.EscapeDataString(address)) + "&key=" + APIKey);
+            XDocument doc = GetXDocument(string.Format(CultureInfo.InvariantCulture, APIUrlLatLongFromAddress, Uri.EscapeDataString(address)) + "&key=" + APIKey);
 
             string status = doc.Descendants("status").FirstOrDefault().Value;
             if (status == Constants.ApiResponses.OverQueryLimit|| status == Constants.ApiResponses.RequestDenied)
@@ -245,8 +264,8 @@ namespace GoogleMaps.LocationServices
         /// <exception cref="System.Net.WebException"></exception>
         public string[] GetAddressesListFromAddress(string address)
         {
+            XDocument doc = GetXDocument(string.Format(CultureInfo.InvariantCulture, APIUrlLatLongFromAddress, Uri.EscapeDataString(address)) + "&key=" + APIKey);
 
-            XDocument doc = XDocument.Load(string.Format(CultureInfo.InvariantCulture, APIUrlLatLongFromAddress, Uri.EscapeDataString(address)) + "&key=" + APIKey);
             var status = doc.Descendants("status").FirstOrDefault().Value;
 
             if (status == "OVER_QUERY_LIMIT" || status == "REQUEST_DENIED")
@@ -294,7 +313,7 @@ namespace GoogleMaps.LocationServices
         {
             Directions direction = new Directions();
 
-            XDocument xdoc = XDocument.Load(String.Format(CultureInfo.InvariantCulture,
+            XDocument xdoc = GetXDocument(string.Format(CultureInfo.InvariantCulture,
                                                 APIUrlDirections,
                                                 Uri.EscapeDataString(originAddress.ToString()),
                                                 Uri.EscapeDataString(destinationAddress.ToString())) + "&key=" + APIKey);
@@ -353,6 +372,25 @@ namespace GoogleMaps.LocationServices
         double ParseUS(string value)
         {
             return Double.Parse(value, new CultureInfo("en-US"));
+        }
+
+        public static XmlDocument ToXmlDocument(XDocument xDocument)
+        {
+            var xmlDocument = new XmlDocument();
+            using (var xmlReader = xDocument.CreateReader())
+            {
+                xmlDocument.Load(xmlReader);
+            }
+            return xmlDocument;
+        }
+
+        public static XDocument ToXDocument(XmlDocument xmlDocument)
+        {
+            using (var nodeReader = new XmlNodeReader(xmlDocument))
+            {
+                nodeReader.MoveToContent();
+                return XDocument.Load(nodeReader);
+            }
         }
     }
 }
