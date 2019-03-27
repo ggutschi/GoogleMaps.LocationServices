@@ -239,10 +239,20 @@ namespace GoogleMaps.LocationServices
             var els = doc.Descendants("result").Descendants("geometry").Descendants("location").FirstOrDefault();
             if (null != els)
             {
-                var latitude = ParseUS((els.Nodes().First() as XElement).Value);
-                var longitude = ParseUS((els.Nodes().ElementAt(1) as XElement).Value);
-                return new MapPoint() { Latitude = latitude, Longitude = longitude };
+                var elemNodes = els.Nodes().Where(x => x is XElement).Cast<XElement>().ToList();
+
+                var lat = elemNodes.FirstOrDefault(x => x.Name.LocalName.ToLower() == "lat");
+                var lon = elemNodes.FirstOrDefault(x => x.Name.LocalName.ToLower() == "lng");
+
+                if (lat != null && lon != null)
+                {
+                    var latitude = ParseUS(lat.Value);
+                    var longitude = ParseUS(lon.Value);
+
+                    return new MapPoint() { Latitude = latitude, Longitude = longitude };
+                }
             }
+
             return null;
         }
 
